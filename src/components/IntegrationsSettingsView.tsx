@@ -90,7 +90,7 @@ export default function IntegrationsSettingsView({
   setOutputStatus
 }: IntegrationsSettingsViewProps) {
   // Navigation for settings sub-categories
-  const [subTab, setSubTab] = useState<'PCO' | 'FreeShow' | 'ProPresenter' | 'EasyWorship' | 'Phase2' | 'Telemetry'>('PCO');
+  const [subTab, setSubTab] = useState<'PCO' | 'FreeShow' | 'ProPresenter' | 'EasyWorship' | 'Phase2' | 'Telemetry' | 'UXPlay'>('PCO');
 
   // Input fields local to Settings page
   const [tokenInput, setTokenInput] = useState(pcoToken);
@@ -109,6 +109,10 @@ export default function IntegrationsSettingsView({
 
   // ProPresenter detailed guide state
   const [showProGuide, setShowProGuide] = useState(false);
+
+  // UXPlay State
+  const [uxPlayRunning, setUxPlayRunning] = useState(false);
+  const [isLaunchingUxPlay, setIsLaunchingUxPlay] = useState(false);
 
   // Simulated validation state for PCO
   const [validationResult, setValidationResult] = useState<{
@@ -238,6 +242,21 @@ export default function IntegrationsSettingsView({
     setScanMessage(`Configured ProPresenter manually at ${ppIpInput}`);
   };
 
+  const handleToggleUxPlay = () => {
+    if (uxPlayRunning) {
+      setUxPlayRunning(false);
+      setScanMessage('UXPlay local AirPlay server stopped.');
+    } else {
+      setIsLaunchingUxPlay(true);
+      setScanMessage('Starting UXPlay daemon...');
+      setTimeout(() => {
+        setIsLaunchingUxPlay(false);
+        setUxPlayRunning(true);
+        setScanMessage('UXPlay AirPlay server is now active on Port 7000.');
+      }, 1500);
+    }
+  };
+
   // Format countdown string
   const formatSyncCountdown = (totalSecs: number) => {
     const min = Math.floor(totalSecs / 60);
@@ -337,6 +356,22 @@ export default function IntegrationsSettingsView({
                 OBS, Restream, Slack
               </span>
               <span className="text-[8px] bg-neutral-850 border border-white/[0.06] text-neutral-400 px-1.5 py-0.5 rounded font-mono">P2</span>
+            </button>
+
+            {/* UXPlay iOS Mirroring */}
+            <button
+              onClick={() => setSubTab('UXPlay')}
+              className={`w-full p-2.5 rounded-lg text-left flex items-center justify-between transition-all cursor-pointer ${
+                subTab === 'UXPlay'
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_12px_rgba(245,158,11,0.04)] font-semibold'
+                  : 'text-neutral-400 hover:bg-white/[0.02] hover:text-white border border-transparent'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Radio className="h-4 w-4 shrink-0" />
+                UXPlay (AirPlay)
+              </span>
+              <span className="text-[8px] bg-neutral-850 border border-white/[0.06] text-neutral-400 px-1.5 py-0.5 rounded font-mono">HOST</span>
             </button>
 
             {/* LAN Daemon Telemetry */}
@@ -1044,7 +1079,72 @@ export default function IntegrationsSettingsView({
           </div>
         )}
 
-        {/* 5. PHASE 2 PREVIEWS TAB */}
+        {/* 5. UXPLAY (AIRPLAY RECEIVER) INTEGRATION */}
+        {subTab === 'UXPlay' && (
+          <div className="immersive-panel p-6 space-y-6" id="panel-setup-uxplay">
+            <div className="border-b border-white/[0.06] pb-4 select-none">
+              <h2 className="text-sm font-black uppercase text-white tracking-widest flex items-center gap-2">
+                <Radio className="h-5 w-5 text-amber-500" />
+                UXPlay (AirPlay Receiver) Host
+              </h2>
+              <p className="text-xs text-neutral-400 mt-1">Mirror iPads, iPhones, and Macs directly into the production overlay pipeline via local AirPlay.</p>
+            </div>
+
+            <div className="bg-black/40 border border-white/[0.04] p-5 rounded-2xl flex flex-col justify-between">
+              <div className="flex justify-between items-start">
+                <div className="space-y-2 max-w-lg">
+                  <span className="text-[9px] font-mono text-emerald-500 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20 font-bold uppercase tracking-widest inline-block">
+                    SIDECAR READY
+                  </span>
+                  <h3 className="text-base font-sans font-bold text-white mt-1.5">Launch Local AirPlay Server</h3>
+                  <p className="text-[11px] text-neutral-400 font-sans leading-relaxed">
+                    UXPlay acts as an open-source AirPlay mirroring server. When launched, this computer will appear as an AirPlay destination (e.g., "Altarite Screen") on your local network. You can capture this window in OBS or route it directly to the stage displays.
+                  </p>
+                  <ul className="text-[11px] font-mono text-zinc-500 space-y-1 mt-2 list-disc list-inside">
+                    <li>Requires Apple Bonjour / mDNS on Windows</li>
+                    <li>Supports iOS 9+ and modern macOS</li>
+                    <li>Hardware accelerated video decoding</li>
+                  </ul>
+                </div>
+                
+                <div className="text-right flex flex-col items-end gap-3">
+                  <button 
+                    onClick={handleToggleUxPlay}
+                    disabled={isLaunchingUxPlay}
+                    className={`${uxPlayRunning ? 'bg-red-500 hover:bg-red-400 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-amber-500 hover:bg-amber-400 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.2)]'} text-black px-6 py-2.5 rounded-lg font-bold text-xs uppercase tracking-widest transition-all border flex items-center gap-2`}
+                  >
+                    {isLaunchingUxPlay ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : uxPlayRunning ? (
+                      <XCircle className="h-3 w-3" />
+                    ) : (
+                      <Play className="h-3 w-3 fill-current" />
+                    )}
+                    {isLaunchingUxPlay ? 'Launching...' : uxPlayRunning ? 'Stop Server' : 'Launch UXPlay'}
+                  </button>
+                  <span className="text-[9px] font-mono text-zinc-500 uppercase">Port 7000 (Video) / 7001 (Audio)</span>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-5 border-t border-white/[0.04] grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
+                <div className="bg-neutral-900/50 p-3 rounded-xl border border-white/[0.02]">
+                  <span className="text-[9px] font-mono text-zinc-500 block uppercase mb-1">Server Name</span>
+                  <span className="text-xs font-mono text-white font-bold">Altarite Host</span>
+                </div>
+                <div className="bg-neutral-900/50 p-3 rounded-xl border border-white/[0.02]">
+                  <span className="text-[9px] font-mono text-zinc-500 block uppercase mb-1">Resolution</span>
+                  <span className="text-xs font-mono text-white font-bold">1920x1080 (1080p)</span>
+                </div>
+                <div className="bg-neutral-900/50 p-3 rounded-xl border border-white/[0.02]">
+                  <span className="text-[9px] font-mono text-zinc-500 block uppercase mb-1">Framerate</span>
+                  <span className="text-xs font-mono text-white font-bold">60 FPS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6. PHASE 2 PREVIEWS TAB */}
         {subTab === 'Phase2' && (
           <div className="immersive-panel p-6 space-y-6" id="panel-setup-phase2">
             <div className="border-b border-white/[0.06] pb-4 select-none">
@@ -1124,7 +1224,7 @@ export default function IntegrationsSettingsView({
           </div>
         )}
 
-        {/* 6. SYSTEM TELEMETRY & LAN DIAGNOSTICS VIEW */}
+        {/* 7. SYSTEM TELEMETRY & LAN DIAGNOSTICS VIEW */}
         {subTab === 'Telemetry' && (
           <TelemetryPanel />
         )}

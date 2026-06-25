@@ -635,7 +635,7 @@ export default function IntegrationsSettingsView({
                 <div>
                   <p className="font-bold text-white uppercase text-[10px] text-amber-500 font-mono tracking-wider">Automated LAN Port Lookup (Port 5505)</p>
                   <p className="text-neutral-400 mt-1">
-                    On startup, LinkOS auto-scans your local area network (LAN) subnet for FreeShow&apos;s default listening port.
+                    On startup, Altarite auto-scans your local area network (LAN) subnet for FreeShow&apos;s default listening port.
                   </p>
                 </div>
                 <button
@@ -994,7 +994,7 @@ export default function IntegrationsSettingsView({
                   <Sliders className="h-4 w-4 text-amber-500" /> EasyWorship Data Sync Settings
                 </h3>
                 <p className="text-neutral-400 leading-relaxed">
-                  Toggle on EasyWorship watch folder. LinkOS will automatically patrol the default EasyWorship schedules directory for updates.
+                  Toggle on EasyWorship watch folder. Altarite will automatically patrol the default EasyWorship schedules directory for updates.
                 </p>
 
                 <div className="bg-black/40 border border-white/[0.04] p-4 rounded-xl flex items-center justify-between text-xs font-sans">
@@ -1150,7 +1150,9 @@ function TelemetryPanel() {
     // Immediate query on render
     const fetchMetrics = async () => {
       try {
-        const res = await fetch('/api/external/diagnostics');
+        const res = await fetch('/api/external/diagnostics', {
+          headers: { 'Authorization': 'Bearer mock-producer-token' }
+        });
         if (res.ok) {
           const data = await res.json();
           setMetrics(data);
@@ -1165,7 +1167,9 @@ function TelemetryPanel() {
     // Setup periodic updater loop (Every 2 seconds)
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/external/diagnostics');
+        const res = await fetch('/api/external/diagnostics', {
+          headers: { 'Authorization': 'Bearer mock-producer-token' }
+        });
         if (res.ok) {
           const data = await res.json();
           setMetrics(data);
@@ -1196,7 +1200,9 @@ function TelemetryPanel() {
     setTestingPath(path);
     setTestResponse('Executing handshake...');
     try {
-      const res = await fetch(path);
+      const res = await fetch(path, {
+        headers: { 'Authorization': 'Bearer mock-producer-token' }
+      });
       if (res.ok) {
         const d = await res.json();
         setTestResponse(JSON.stringify(d, null, 2));

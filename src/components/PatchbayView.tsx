@@ -12,6 +12,33 @@ interface PatchbayViewProps {
 export default function PatchbayView({ nodes, setNodes, connections, setConnections }: PatchbayViewProps) {
   const [activeSheet, setActiveSheet] = useState<'Audio' | 'Video' | 'Lighting' | 'Network'>('Audio');
 
+  // Drag-and-drop state for patchbay nodes
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  const handleStartDrag = (clientX: number, clientY: number, nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    setDraggedNodeId(nodeId);
+    setDragOffset({
+      x: clientX - node.x,
+      y: clientY - node.y
+    });
+  };
+
+  const handleDragMove = (clientX: number, clientY: number) => {
+    if (!draggedNodeId) return;
+    // Bound node inside visual viewport bounds cleanly (x: 10 to 820, y: 10 to 300)
+    const newX = Math.max(10, Math.min(820, clientX - dragOffset.x));
+    const newY = Math.max(10, Math.min(300, clientY - dragOffset.y));
+
+    setNodes(prev => prev.map(n => n.id === draggedNodeId ? { ...n, x: newX, y: newY } : n));
+  };
+
+  const handleStopDrag = () => {
+    setDraggedNodeId(null);
+  };
+
   // Node registration inputs
   const [newNodeName, setNewNodeName] = useState('');
   const [newNodeType, setNewNodeType] = useState<PatchNode['type']>('Microphone');
@@ -269,7 +296,19 @@ export default function PatchbayView({ nodes, setNodes, connections, setConnecti
           )}
 
           {/* Interactive SVG Nodes Connector Map Board */}
-          <div className="bg-black/40 border border-white/[0.04] rounded-2xl p-4 overflow-hidden relative min-h-[420px] select-none" id="interactive-grid-viewport">
+          <div
+            className="bg-black/40 border border-white/[0.04] rounded-2xl p-4 overflow-hidden relative min-h-[420px] select-none"
+            id="interactive-grid-viewport"
+            onMouseMove={(e) => handleDragMove(e.clientX, e.clientY)}
+            onTouchMove={(e) => {
+              if (e.touches.length > 0) {
+                handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+              }
+            }}
+            onMouseUp={handleStopDrag}
+            onMouseLeave={handleStopDrag}
+            onTouchEnd={handleStopDrag}
+          >
             {/* Grid system backdrop */}
             <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none" />
 
@@ -287,12 +326,28 @@ export default function PatchbayView({ nodes, setNodes, connections, setConnecti
                   Computer: 'bg-blue-500/10 border-blue-500 text-blue-400',
                 };
 
+                const isDraggingThis = draggedNodeId === node.id;
+
                 return (
                   <div
                     key={node.id}
-                    className={`absolute border rounded-xl p-3 shadow-md border-t-4 transition-all w-36 text-center shadow-neutral-950/40 select-none ${nodeColors[node.type]}`}
+                    className={`absolute border rounded-xl p-3 shadow-md border-t-4 w-36 text-center shadow-neutral-950/40 select-none cursor-grab active:cursor-grabbing z-20 ${
+                      isDraggingThis ? 'opacity-80 scale-105 border-amber-500' : 'transition-all duration-200'
+                    } ${nodeColors[node.type]}`}
                     style={{ left: `${node.x}px`, top: `${node.y}px` }}
                     id={`patch-node-${node.id}`}
+                    onMouseDown={(e) => {
+                      if (e.button === 0) {
+                        e.stopPropagation();
+                        handleStartDrag(e.clientX, e.clientY, node.id);
+                      }
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      if (e.touches.length > 0) {
+                        handleStartDrag(e.touches[0].clientX, e.touches[0].clientY, node.id);
+                      }
+                    }}
                   >
                     <span className="text-[9px] font-mono uppercase tracking-wider block opacity-70 mb-0.5">{node.type}</span>
                     <p className="text-xs font-sans font-semibold text-white truncate px-1" title={node.name}>{node.name}</p>

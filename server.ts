@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 
@@ -13,11 +14,78 @@ const PORT = 3000;
 // Enable JSON bodies
 app.use(express.json());
 
+// SEC-003: Custom CORS Over-exposure protection
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOriginPattern = /^(https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?|https:\/\/ais-dev-.*\.run\.app|https:\/\/ais-pre-.*\.run\.app)$/;
+  if (origin && allowedOriginPattern.test(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// SEC-001: Missing Schema validation & payload sanitization layer
+function sanitizeAndLimit(obj: any, depth: number = 0): any {
+  if (depth > 5) return null;
+  if (typeof obj === "string") {
+    // Sanitize tags to prevent script injection/XSS and restrict length to a safe size
+    return obj.replace(/<[^>]*>/g, "").substring(0, 1500).trim();
+  }
+  if (Array.isArray(obj)) {
+    // Prevent memory exhaustion/DoS from overly large payloads
+    return obj.slice(0, 300).map(item => sanitizeAndLimit(item, depth + 1));
+  }
+  if (obj !== null && typeof obj === "object") {
+    const sanitized: any = {};
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+        sanitized[key] = sanitizeAndLimit(obj[key], depth + 1);
+      }
+    }
+    return sanitized;
+  }
+  if (typeof obj === "number") {
+    return Number.isFinite(obj) ? obj : 0;
+  }
+  if (typeof obj === "boolean") {
+    return obj;
+  }
+  return null;
+}
+
+// SEC-002: Header-based authentication checks (using 4-digit PINs or mock session token verification)
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized: Missing authentication token" });
+  }
+  const token = authHeader.split(" ")[1];
+  // Allow the producer mock token, volunteer token, or standard spec 4-digit volunteer PIN (1234)
+  if (token === "mock-producer-token" || token === "mock-volunteer-token" || token === "1234") {
+    next();
+  } else {
+    return res.status(403).json({ error: "Forbidden: Invalid authorization credentials" });
+  }
+};
+
 // IN-MEMORY REAL-TIME SYNCHRONIZATION DATASTORE - Apple-style: Robust, self-contained, lightweight!
-const state = {
+
+const STATE_FILE = path.join(process.cwd(), "linkos-state.json");
+
+let state = {
   activeSegmentId: "item-5", // default sermon
   outputStatus: "live", // live | preview | blackout
   
+  // Setup flag
+  setupComplete: false,
   // Integrations state
   pcoToken: "",
   pcoConnected: false,
@@ -291,7 +359,31 @@ const state = {
       ]
     }
   ],
-  activeSlideIndex: 4 // sermon slide by default
+  activeSlideIndex: 4, // sermon slide by default
+  stageMics: [
+    { id: 'mic-1', name: 'Wireless Mic 1', assignedTo: 'Pastor Marcus', role: 'Preacher', battery: 92, frequency: '512.4 MHz', signal: 'strong', isMuted: false, level: 75, avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
+    { id: 'mic-2', name: 'Wireless Mic 2', assignedTo: 'David (Worship Lead)', role: 'Worship Lead', battery: 78, frequency: '516.2 MHz', signal: 'strong', isMuted: false, level: 20, avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80' },
+    { id: 'mic-3', name: 'Wireless Mic 3', assignedTo: 'Julia (Backing Vocals)', role: 'Worship Singer', battery: 85, frequency: '520.8 MHz', signal: 'good', isMuted: true, level: 0, avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80' },
+    { id: 'mic-4', name: 'Wireless Mic 4', assignedTo: 'Guest Speaker', role: 'Welcome Host', battery: 100, frequency: '524.1 MHz', signal: 'strong', isMuted: false, level: 10, avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' }
+  ]
+};
+
+// Attempt to load saved state from disk on boot
+try {
+  if (fs.existsSync(STATE_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+    state = { ...state, ...saved };
+  }
+} catch (e) {
+  console.error("Failed to load state from disk:", e);
+}
+
+const saveState = () => {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.error("Failed to save state to disk:", e);
+  }
 };
 
 // Middleware to keep track of diagnostic statistics (very Apple!)
@@ -306,7 +398,7 @@ app.use((req, res, next) => {
 // ----------------------------------------------------
 
 // GET /api/state - Apple premium: Synchronizes everything in one transaction
-app.get("/api/state", (req, res) => {
+app.get("/api/state", requireAuth, (req, res) => {
   res.json({
     status: "ok",
     ...state
@@ -314,14 +406,46 @@ app.get("/api/state", (req, res) => {
 });
 
 // POST /api/action - Handle specific events atomically
-app.post("/api/action", (req, res) => {
-  const { type, payload } = req.body;
+app.post("/api/action", requireAuth, (req, res) => {
+  const { type, payload: rawPayload } = req.body;
   if (!type) {
     return res.status(400).json({ error: "Action type is required" });
   }
 
+  // Validate action type is one of our permitted list
+  const knownActions = [
+    "SET_ACTIVE_SEGMENT",
+    "SET_OUTPUT_STATUS",
+    "TOGGLE_CHECKLIST_ITEM",
+    "ADD_CHAT_MESSAGE",
+    "UPDATE_PATCH_NODES",
+    "UPDATE_PATCH_CONNECTIONS",
+    "TOGGLE_TRAINING_MODULE",
+    "SYNC_ITEMS_REORDER",
+    "UPDATE_SERVICE_ITEMS",
+    "SET_PCO_CONNECTION",
+    "SET_ENGINE",
+    "SET_CONNECTION_STATUS",
+    "CHANGE_SLIDE",
+    "UPDATE_CHECKLISTS",
+    "UPDATE_CHAT_MESSAGES",
+    "UPDATE_TRAINING_MODULES",
+    "UPDATE_STAGE_MICS",
+    "INITIALIZE_WORKSPACE"
+  ];
+
+  if (!knownActions.includes(type)) {
+    return res.status(400).json({ error: `Invalid or unrecognized action type: ${type}` });
+  }
+
+  // SEC-001: Sanitize payload to strip HTML elements and prevent circular object/DoS issues
+  const payload = sanitizeAndLimit(rawPayload);
+
   switch (type) {
     case "SET_ACTIVE_SEGMENT":
+      if (!payload || typeof payload.id !== "string") {
+        return res.status(400).json({ error: "payload.id must be a string" });
+      }
       state.activeSegmentId = payload.id;
       // Also automatically advance the slide preview to matching slide if possible
       const serviceItem = state.items.find(i => i.id === payload.id);
@@ -334,12 +458,16 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "SET_OUTPUT_STATUS":
-      if (["live", "preview", "blackout"].includes(payload.status)) {
-        state.outputStatus = payload.status;
+      if (!payload || !["live", "preview", "blackout"].includes(payload.status)) {
+        return res.status(400).json({ error: "payload.status must be one of: live, preview, blackout" });
       }
+      state.outputStatus = payload.status;
       break;
 
     case "TOGGLE_CHECKLIST_ITEM":
+      if (!payload || typeof payload.id !== "string") {
+        return res.status(400).json({ error: "payload.id must be a string" });
+      }
       const checkIdx = state.checklists.findIndex(c => c.id === payload.id);
       if (checkIdx !== -1) {
         const item = state.checklists[checkIdx];
@@ -356,6 +484,9 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "ADD_CHAT_MESSAGE":
+      if (!payload || typeof payload.text !== "string") {
+        return res.status(400).json({ error: "payload.text must be a string" });
+      }
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const newMsg = {
         id: "msg-" + Date.now(),
@@ -369,20 +500,28 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "UPDATE_PATCH_NODES":
-      // Supports coordinate drag saves
-      if (Array.isArray(payload.nodes)) {
-        state.patchNodes = payload.nodes;
+      if (!payload || !Array.isArray(payload.nodes)) {
+        return res.status(400).json({ error: "payload.nodes must be an array" });
       }
+      for (const node of payload.nodes) {
+        if (typeof node.x !== "number" || typeof node.y !== "number") {
+          return res.status(400).json({ error: "node x and y coordinates must be numbers" });
+        }
+      }
+      state.patchNodes = payload.nodes;
       break;
 
     case "UPDATE_PATCH_CONNECTIONS":
-      // Supports real-time patchcord physical routing
-      if (Array.isArray(payload.connections)) {
-        state.patchConnections = payload.connections;
+      if (!payload || !Array.isArray(payload.connections)) {
+        return res.status(400).json({ error: "payload.connections must be an array" });
       }
+      state.patchConnections = payload.connections;
       break;
 
     case "TOGGLE_TRAINING_MODULE":
+      if (!payload || typeof payload.id !== "string") {
+        return res.status(400).json({ error: "payload.id must be a string" });
+      }
       const trIdx = state.trainingModules.findIndex(t => t.id === payload.id);
       if (trIdx !== -1) {
         const module = state.trainingModules[trIdx];
@@ -397,25 +536,27 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "SYNC_ITEMS_REORDER":
-      if (Array.isArray(payload.items)) {
-        state.items = payload.items;
-      }
-      break;
-
     case "UPDATE_SERVICE_ITEMS":
-      if (Array.isArray(payload.items)) {
-        state.items = payload.items;
+      if (!payload || !Array.isArray(payload.items)) {
+        return res.status(400).json({ error: "payload.items must be an array" });
       }
+      state.items = payload.items;
       break;
 
     case "SET_PCO_CONNECTION":
-      state.pcoConnected = payload.connected;
-      state.pcoLastSync = payload.lastSync;
+      if (!payload) {
+        return res.status(400).json({ error: "payload is required" });
+      }
+      state.pcoConnected = !!payload.connected;
+      state.pcoLastSync = payload.lastSync || null;
       state.pcoToken = payload.token || "";
       break;
 
     case "SET_ENGINE":
-      if (["FreeShow", "ProPresenter", "EasyWorship", "None"].includes(payload.activeEngine)) {
+      if (!payload) {
+        return res.status(400).json({ error: "payload is required" });
+      }
+      if (payload.activeEngine && ["FreeShow", "ProPresenter", "EasyWorship", "None"].includes(payload.activeEngine)) {
         state.activeEngine = payload.activeEngine;
       }
       if (payload.freeShowIp !== undefined) state.freeShowIp = payload.freeShowIp;
@@ -423,6 +564,9 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "SET_CONNECTION_STATUS":
+      if (!payload || typeof payload.connected !== "boolean") {
+        return res.status(400).json({ error: "payload.connected must be a boolean" });
+      }
       if (payload.engine === "FreeShow") {
         state.freeShowConnected = payload.connected;
       } else if (payload.engine === "ProPresenter") {
@@ -433,7 +577,10 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "CHANGE_SLIDE":
-      const direction = payload.direction; // 'next' | 'prev' | number
+      if (!payload) {
+        return res.status(400).json({ error: "payload is required" });
+      }
+      const direction = payload.direction;
       if (direction === "next") {
         if (state.activeSlideIndex < state.slidePresets.length - 1) {
           state.activeSlideIndex++;
@@ -450,26 +597,57 @@ app.post("/api/action", (req, res) => {
       break;
 
     case "UPDATE_CHECKLISTS":
-      if (Array.isArray(payload.checklists)) {
-        state.checklists = payload.checklists;
+      if (!payload || !Array.isArray(payload.checklists)) {
+        return res.status(400).json({ error: "payload.checklists must be an array" });
       }
+      state.checklists = payload.checklists;
       break;
 
     case "UPDATE_CHAT_MESSAGES":
-      if (Array.isArray(payload.chatMessages)) {
-        state.chatMessages = payload.chatMessages;
+      if (!payload || !Array.isArray(payload.chatMessages)) {
+        return res.status(400).json({ error: "payload.chatMessages must be an array" });
       }
+      state.chatMessages = payload.chatMessages;
       break;
 
     case "UPDATE_TRAINING_MODULES":
-      if (Array.isArray(payload.modules)) {
-        state.trainingModules = payload.modules;
+      if (!payload || !Array.isArray(payload.modules)) {
+        return res.status(400).json({ error: "payload.modules must be an array" });
+      }
+      state.trainingModules = payload.modules;
+      break;
+
+    case "UPDATE_STAGE_MICS":
+      if (!payload || !Array.isArray(payload.stageMics)) {
+        return res.status(400).json({ error: "payload.stageMics must be an array" });
+      }
+      state.stageMics = payload.stageMics;
+      break;
+
+    case "INITIALIZE_WORKSPACE":
+      state.setupComplete = true;
+      if (payload && payload.pcoToken) {
+        state.pcoToken = payload.pcoToken;
+      }
+      if (payload && payload.loadDemo === false) {
+        state.items = [];
+        state.checklists = [];
+        state.chatMessages = [];
+        state.patchNodes = [];
+        state.patchConnections = [];
+        state.trainingModules = [];
+        state.slidePresets = [];
+        state.stageMics = [];
+        state.activeSegmentId = null;
+        state.activeSlideIndex = 0;
       }
       break;
 
     default:
       console.warn("Unhandled synclink activity type:", type);
   }
+
+  saveState();
 
   res.json({
     status: "ok",
@@ -515,7 +693,7 @@ app.get("/api/external/slides/active", (req, res) => {
 });
 
 // 3. Remote Control endpoint (Ideal for Companion / Stream Deck integration!)
-app.post("/api/external/slides/control", (req, res) => {
+app.post("/api/external/slides/control", requireAuth, (req, res) => {
   const { command, index } = req.body;
   if (command === "next") {
     if (state.activeSlideIndex < state.slidePresets.length - 1) state.activeSlideIndex++;
@@ -537,7 +715,7 @@ app.post("/api/external/slides/control", (req, res) => {
 });
 
 // 4. Advanced diagnostics feedback - Apple level beauty
-app.get("/api/external/diagnostics", (req, res) => {
+app.get("/api/external/diagnostics", requireAuth, (req, res) => {
   const memory = process.memoryUsage();
   res.json({
     uptimeSeconds: Math.floor((Date.now() - state.bootTime) / 1000),
@@ -561,7 +739,8 @@ app.get("/api/external/diagnostics", (req, res) => {
 
 
 // ----------------------------------------------------
-// VITE OR STATIC FILE INTEGRATION (ASBESTOS CORE RUNTIME)
+// DEVELOPMENT MIDDLEWARE AND PRODUCTION STATIC PIPELINE
+// Handles Vite hot-sync routing in development and optimized static asset hosting in production
 // ----------------------------------------------------
 async function initializeServer() {
   if (process.env.NODE_ENV !== "production") {

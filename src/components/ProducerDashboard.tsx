@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ServiceItem, ChecklistItem, ChatMessage, SlidePreset } from '../types';
-import { Play, SkipForward, SkipBack, Edit3, Trash2, Send, MessageSquare, Volume2, Info, ChevronRight, Activity, Layers, Pin, Grid, AlertTriangle, AlertCircle, Wifi, WifiOff, Tv, CheckCircle2, XCircle } from 'lucide-react';
+import { ServiceItem, ChecklistItem, ChatMessage, SlidePreset, StageMic } from '../types';
+import { Play, SkipForward, SkipBack, Edit3, Trash2, Send, MessageSquare, Volume2, Info, ChevronRight, Activity, Layers, Pin, Grid, AlertTriangle, AlertCircle, Wifi, WifiOff, Tv, CheckCircle2, XCircle, Battery, Mic, VolumeX } from 'lucide-react';
 
 interface ProducerDashboardProps {
   items: ServiceItem[];
@@ -32,6 +32,11 @@ interface ProducerDashboardProps {
   
   outputStatus?: 'live' | 'preview' | 'blackout';
   setOutputStatus?: (val: 'live' | 'preview' | 'blackout') => void;
+
+  stageMics: StageMic[];
+  setStageMics: React.Dispatch<React.SetStateAction<StageMic[]>>;
+  currentSlideIndex: number;
+  setCurrentSlideIndex: (val: any) => void;
 }
 
 export default function ProducerDashboard({
@@ -58,7 +63,12 @@ export default function ProducerDashboard({
   proPropApiEnabled = true,
   easyWorshipConnected = false,
   outputStatus = 'live',
-  setOutputStatus
+  setOutputStatus,
+
+  stageMics,
+  setStageMics,
+  currentSlideIndex,
+  setCurrentSlideIndex
 }: ProducerDashboardProps) {
   // Panel toggles for layout editing
   const [enabledPanels, setEnabledPanels] = useState<Record<string, boolean>>({
@@ -67,14 +77,15 @@ export default function ProducerDashboard({
     checklists: true,
     chat: true,
     spl: true,
-    notes: true
+    notes: true,
+    mics: true
   });
 
   const [activeLayoutPreset, setActiveLayoutPreset] = useState<'Standard' | 'Compact' | 'Special Event'>('Standard');
 
-  // Slide state simulation
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(4); // default to sermon slide
+  // Slide state simulation (lifted to shared state)
   const [autoClearSlides, setAutoClearSlides] = useState(true);
+  const [expandedMicId, setExpandedMicId] = useState<string | null>(null);
   const [showConnDetails, setShowConnDetails] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
 
@@ -270,9 +281,9 @@ export default function ProducerDashboard({
                 onClick={() => {
                   setActiveLayoutPreset(preset as any);
                   if (preset === 'Compact') {
-                    setEnabledPanels({ slides: true, plan: true, checklists: false, chat: true, spl: true, notes: false });
+                    setEnabledPanels({ slides: true, plan: true, checklists: false, chat: true, spl: true, notes: false, mics: false });
                   } else {
-                    setEnabledPanels({ slides: true, plan: true, checklists: true, chat: true, spl: true, notes: true });
+                    setEnabledPanels({ slides: true, plan: true, checklists: true, chat: true, spl: true, notes: true, mics: true });
                   }
                 }}
                 className={`px-3 py-1 rounded-md cursor-pointer transition-all ${
@@ -591,7 +602,7 @@ export default function ProducerDashboard({
                   return (
                     <div
                       key={item.id}
-                      onClick={() => handleSetActive && handleSetActive(item.id)}
+                      onClick={() => setActiveId && setActiveId(item.id)}
                       className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 text-xs cursor-pointer transition-all ${
                         isActive
                           ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.04)]'
@@ -825,12 +836,255 @@ export default function ProducerDashboard({
             </div>
           </div>
         )}
+
+        {/* Panel 7: Wireless Stage Mics Manager */}
+        {enabledPanels.mics && (
+          <div className="immersive-panel p-5 shadow-2xl flex flex-col justify-between" id="pnl-stage-mics-manager">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
+                <h3 className="text-xs font-black uppercase font-sans text-white tracking-wider flex items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-2 shrink-0 inline-block animate-pulse" />
+                  Stage Microphone Console
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const newId = `mic-${Date.now()}`;
+                      const frequencies = ['512.4 MHz', '516.2 MHz', '520.8 MHz', '524.1 MHz', '528.5 MHz', '532.9 MHz', '537.3 MHz'];
+                      const currentCount = stageMics.length;
+                      const freq = frequencies[currentCount % frequencies.length];
+                      const newMic: StageMic = {
+                        id: newId,
+                        name: `Wireless Mic ${currentCount + 1}`,
+                        assignedTo: '',
+                        role: 'Vocalist/Speaker',
+                        battery: 100,
+                        frequency: freq,
+                        signal: 'strong',
+                        isMuted: false,
+                        level: 40,
+                        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'
+                      };
+                      setStageMics(prev => [...prev, newMic]);
+                      setExpandedMicId(newId);
+                    }}
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-black font-extrabold font-sans text-[10px] uppercase rounded-lg flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                    id="btn-add-wireless-mic"
+                  >
+                    + Add Mic
+                  </button>
+                  <span className="text-[9px] font-mono text-zinc-400 bg-black px-2 py-0.5 rounded border border-white/[0.06]">
+                    RF RECEIVER API
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1" id="mics-management-list">
+                {stageMics.length === 0 ? (
+                  <div className="text-center py-10 text-zinc-500 text-xs">
+                    No microphones registered. Click "+ Add Mic" to configure your first channel.
+                  </div>
+                ) : (
+                  stageMics.map(mic => (
+                    <div key={mic.id} className="p-3 bg-black/60 rounded-xl border border-white/[0.04] flex flex-col gap-2.5 transition-all">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img 
+                            src={mic.avatarUrl} 
+                            alt={mic.name} 
+                            referrerPolicy="no-referrer"
+                            className={`w-8 h-8 rounded-full object-cover border transition-all ${mic.isMuted ? 'border-zinc-850 opacity-60' : 'border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.25)]'}`}
+                          />
+                          <div className="text-left min-w-0 flex-grow">
+                            <span className="text-[8px] font-mono text-zinc-500 uppercase block leading-none mb-0.5">
+                              {mic.name} &bull; {mic.frequency} &bull; {mic.signal.toUpperCase()} RF
+                            </span>
+                            {/* Editable Assigned Speaker */}
+                            <input 
+                              type="text" 
+                              value={mic.assignedTo}
+                              onChange={(e) => {
+                                const nextVal = e.target.value;
+                                setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, assignedTo: nextVal } : m));
+                              }}
+                              className="bg-transparent border-none text-xs font-bold text-zinc-100 focus:outline-none focus:ring-0 hover:bg-white/[0.02] rounded px-1 -mx-1 py-0.5 w-full truncate cursor-text"
+                              placeholder="Type to assign..."
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Config Expansion trigger toggle button */}
+                          <button
+                            onClick={() => {
+                              setExpandedMicId(prev => prev === mic.id ? null : mic.id);
+                            }}
+                            className={`p-1.5 rounded-lg border text-xs font-mono cursor-pointer transition-all ${
+                              expandedMicId === mic.id 
+                                ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 font-bold' 
+                                : 'bg-zinc-900 border-white/[0.04] text-zinc-400 hover:text-white'
+                            }`}
+                            title="Edit Microphone Parameters"
+                          >
+                            Edit
+                          </button>
+
+                          {/* Mute toggle button */}
+                          <button
+                            onClick={() => {
+                              setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, isMuted: !m.isMuted } : m));
+                            }}
+                            className={`p-1.5 rounded-lg border text-[10px] font-mono uppercase tracking-wider cursor-pointer transition-all shrink-0 ${
+                              mic.isMuted 
+                                ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 font-bold' 
+                                : 'bg-zinc-900 border-white/[0.04] text-zinc-400 hover:text-white'
+                            }`}
+                            title={mic.isMuted ? "Unmute Mic" : "Mute Mic"}
+                          >
+                            {mic.isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expandable Configuration Details Section (Sec 3.0 & Custom Instructions) */}
+                      {expandedMicId === mic.id && (
+                        <div className="p-3 bg-zinc-950/80 border border-white/[0.03] rounded-lg space-y-3 text-left animate-in fade-in duration-200">
+                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-zinc-400">
+                            <div className="space-y-1">
+                              <span>Mic ID/Label</span>
+                              <input 
+                                type="text"
+                                value={mic.name}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, name: e.target.value } : m))}
+                                className="bg-zinc-900/60 border border-white/[0.06] rounded px-2 py-1 text-zinc-100 text-[10px] w-full focus:outline-none focus:border-amber-500/30"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span>Vocal Role/Tag</span>
+                              <input 
+                                type="text"
+                                value={mic.role}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, role: e.target.value } : m))}
+                                className="bg-zinc-900/60 border border-white/[0.06] rounded px-2 py-1 text-zinc-100 text-[10px] w-full focus:outline-none focus:border-amber-500/30"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-zinc-400">
+                            <div className="space-y-1">
+                              <span>Frequency</span>
+                              <input 
+                                type="text"
+                                value={mic.frequency}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, frequency: e.target.value } : m))}
+                                className="bg-zinc-900/60 border border-white/[0.06] rounded px-2 py-1 text-zinc-100 text-[10px] w-full focus:outline-none focus:border-amber-500/30"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span>RF Signal Status</span>
+                              <select 
+                                value={mic.signal}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, signal: e.target.value as any } : m))}
+                                className="bg-zinc-900/60 border border-white/[0.06] rounded px-2 py-1 text-zinc-100 text-[10px] w-full focus:outline-none focus:border-amber-500/30"
+                              >
+                                <option value="strong">Strong RF</option>
+                                <option value="good">Good RF</option>
+                                <option value="weak">Weak RF</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-zinc-400">
+                            <div className="space-y-1">
+                              <span>Battery: {mic.battery}%</span>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={mic.battery}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, battery: parseInt(e.target.value) } : m))}
+                                className="w-full accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span>VU volume base: {mic.level}%</span>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={mic.level}
+                                onChange={(e) => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, level: parseInt(e.target.value) } : m))}
+                                className="w-full accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quick Avatar selector */}
+                          <div className="space-y-1 text-[9px] font-mono text-zinc-400">
+                            <span>Vocalist Avatar Selection</span>
+                            <div className="flex gap-2 items-center">
+                              {[
+                                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+                                'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+                                'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150',
+                                'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150',
+                                'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150'
+                              ].map((url, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setStageMics(prev => prev.map(m => m.id === mic.id ? { ...m, avatarUrl: url } : m))}
+                                  className={`w-6 h-6 rounded-full overflow-hidden border cursor-pointer transition-all ${
+                                    mic.avatarUrl === url ? 'border-amber-500 scale-110 shadow-md shadow-amber-500/10' : 'border-white/10 hover:border-white/30'
+                                  }`}
+                                >
+                                  <img src={url} className="w-full h-full object-cover pointer-events-none" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Delete mic action */}
+                          <button
+                            onClick={() => {
+                              setStageMics(prev => prev.filter(m => m.id !== mic.id));
+                              setExpandedMicId(null);
+                            }}
+                            className="w-full px-2 py-1 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-400 rounded text-[9px] font-mono uppercase font-bold transition-all cursor-pointer"
+                          >
+                            Delete Microphone Channel
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Audio VU Indicator & Details */}
+                      <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500">
+                        <div className="flex items-center gap-1.5 w-2/3">
+                          <span>VU</span>
+                          <div className="flex-grow h-2 bg-neutral-950 border border-white/[0.04] rounded-sm overflow-hidden flex">
+                            {!mic.isMuted ? (
+                              <div className="bg-amber-500 h-full transition-all duration-300" style={{ width: `${mic.level}%` }} />
+                            ) : (
+                              <div className="bg-zinc-900 h-full w-full" />
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Battery className="h-3 w-3" />
+                          <span className={`${mic.battery <= 20 ? 'text-red-400 animate-pulse font-bold' : ''}`}>{mic.battery}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-neutral-950 p-2.5 rounded-lg border border-neutral-850 text-[10px] text-zinc-500 font-mono mt-4 text-left select-none">
+              💡 <strong>System Config</strong>: Create or delete channels above. Click "Edit" to configure frequencies, battery status, roles, or swap vocalist avatars. All changes sync dynamically.
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
-// Helper to handle active item state changes
-const handleSetActive = (id: string) => {
-  // Provided logic handles layout-specific toggles
-};

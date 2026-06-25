@@ -61,3 +61,17 @@ export interface SlidePreset {
   title: string;
   lyricLines: string[];
 }
+
+export interface StageMic {
+  id: string;
+  name: string;
+  assignedTo: string;
+  role: string;
+  battery: number;
+  frequency: string;
+  signal: 'strong' | 'good' | 'weak';
+  isMuted: boolean;
+  level: number;
+  avatarUrl: string;
+}
+

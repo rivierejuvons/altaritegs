@@ -1,6 +1,6 @@
 {
   "name": "Altarite",
   "description": "Live production management and real-time volunteer checklist software for seamless church services.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["screen-wake-lock"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
